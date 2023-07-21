@@ -6,15 +6,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
 
 public class Main {
-	final static int IDS_2_FETCH = 3; //Select IDs to delete
-	static List<String> IDS_2_DELETE = new ArrayList<> (IDS_2_FETCH);
-	final static int DELETE_BATCH_SIZE = 1 ;
+	final static int IDS_2_FETCH = 10000; //Select loop size (IDs to delete) will be repeated as many times needed to delete them all
+	static List<String> IDS_2_DELETE ;
+	final static int DELETE_BATCH_SIZE = 1000 ; //Size of the list going to be deleted in one shut
 	final static String inlistJoin = " /* <OPTGUIDELINES> <INLIST2JOIN TABLE=\"REPOSITORY.DELETED_ITEMS\" COLUMN=\"ITEM_UUID\"/> </OPTGUIDELINES> */";
 	
 	public static void main (String[] args) {
@@ -122,55 +121,59 @@ public class Main {
 			//SELECT uuids and DELETE them in loop
 			if (true) {
 				System.out.println ("SELECT uuids and DELETE them in loop");
-				String selectStatement = selectIDs + whereWithDate + fetchFirstXRows;
-				
-				PreparedStatement pstmt = con.prepareStatement (selectStatement);
-				pstmt.setTimestamp (1, Timestamp.from (yesterday));
-				pstmt.setInt (2, IDS_2_FETCH);
-				
-				startTime = System.nanoTime ();
-				Duration durationSelectLoop = Duration.ofMillis (1);
-
-				rs = pstmt.executeQuery ();
-				ResultSetMetaData rsmd = rs.getMetaData();
-				int column_name = rsmd.getColumnDisplaySize (1);
-				System.out.println (column_name);
-				System.out.println (rs.getMetaData ().getColumnTypeName (1));
-
-				while (rs.next()) {
-					String id = rs.getString (1);
-					IDS_2_DELETE.add (id);
-				}
-				// Close the ResultSet
-				rs.close();
-				pstmt.close ();
-				
-				System.out.println ("Selected records: " + IDS_2_DELETE.size());
-				System.out.println ("Duration of SELECT from DB2 :" +
-						durationSelectLoop.plusNanos (System.nanoTime () - startTime).toSeconds () +
-						" sec");
-				
-				startTime = System.nanoTime ();
-				Duration durationDeleteLoops = Duration.ofMillis (1);
-				if(true){
-					int i = IDS_2_DELETE.size();
-					if(i > DELETE_BATCH_SIZE){
-						do{
-							//System.out.println ("Delete : "+ DELETE_BATCH_SIZE);
+				int fetchedIDs ;
+				int fetchLoopCount = 0;
+				do {
+					IDS_2_DELETE = new ArrayList<> ();
+					String selectStatement = selectIDs + whereWithDate + fetchFirstXRows;
+					
+					PreparedStatement pstmt = con.prepareStatement (selectStatement);
+					pstmt.setTimestamp (1, Timestamp.from (yesterday));
+					pstmt.setInt (2, IDS_2_FETCH);
+					
+					startTime = System.nanoTime ();
+					Duration durationSelectLoop = Duration.ofMillis (1);
+	
+					rs = pstmt.executeQuery ();
+					
+					while (rs.next()) {
+						String id = rs.getString (1);
+						IDS_2_DELETE.add (id);
+					}
+					// Close the ResultSet
+					rs.close();
+					pstmt.close ();
+					fetchedIDs = IDS_2_DELETE.size();
+					
+					System.out.println ("Selected records: " + IDS_2_DELETE.size());
+					System.out.println ("Duration of SELECT from DB2 :" +
+							durationSelectLoop.plusNanos (System.nanoTime () - startTime).toSeconds () +
+							" sec");
+					
+					startTime = System.nanoTime ();
+					Duration durationDeleteLoops = Duration.ofMillis (1);
+					if(true){
+						int i = fetchedIDs;
+						if(i > DELETE_BATCH_SIZE){
+							do{
+								//System.out.println ("Delete : "+ DELETE_BATCH_SIZE);
+								deleteRecords(con);
+								i -= DELETE_BATCH_SIZE;
+								//System.out.println ("Remains : " + i);
+							}while (i > DELETE_BATCH_SIZE);
+						}
+						if(i > 0){
+							//System.out.println ("Delete : " + i);
 							deleteRecords(con);
-							i -= DELETE_BATCH_SIZE;
-							//System.out.println ("Remains : " + i);
-						}while (i > DELETE_BATCH_SIZE);
+							i = 0;
+						}
 					}
-					if(i > 0){
-						//System.out.println ("Delete : " + i);
-						deleteRecords(con);
-						i = 0;
-					}
-				}
-				System.out.println ("Total Duration of Delete: " +
-						durationDeleteLoops.plusNanos (System.nanoTime () - startTime).toSeconds () +
-						" sec");
+					System.out.println ("Total Duration of Delete: " +
+							durationDeleteLoops.plusNanos (System.nanoTime () - startTime).toSeconds () +
+							" sec");
+					fetchLoopCount++;
+					System.out.println (fetchLoopCount);
+				}while (fetchedIDs == IDS_2_FETCH );
 			}
 			
 			
